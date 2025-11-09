@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,7 +32,7 @@ async function run() {
     //post bills
     app.post("/bills", async (req, res) => {
       const newBill = req.body;
-      const result = billsCollection.insertOne(newBill);
+      const result = await billsCollection.insertOne(newBill);
       res.send(result);
     });
 
@@ -40,7 +40,18 @@ async function run() {
     app.get("/bills", async (req, res) => {
       const cursor = billsCollection.find();
       const result = await cursor.toArray();
-      res.send(result)
+      res.send(result);
+    });
+
+    // A bill of particulars
+    app.get("/bills/:id", async (req, res) => {
+      const id = req.params.id;
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ error: "Invalid bill id" });
+      }
+      const query = { _id: new ObjectId(id) };
+      const result = await billsCollection.findOne(query);
+      res.send(result);
     });
 
     console.log(
