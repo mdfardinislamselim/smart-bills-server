@@ -43,6 +43,22 @@ async function run() {
       res.send(result);
     });
 
+    // Get latest 3 bills
+    app.get("/bills/latest3", async (req, res) => {
+      try {
+        const cursor = billsCollection
+          .find()
+          .sort({ date: -1 })
+          .limit(3);
+
+        const result = await cursor.toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching latest bills:", error);
+        res.status(500).send({ message: "Failed to fetch latest bills" });
+      }
+    });
+
     // A bill of particulars
     app.get("/bills/:id", async (req, res) => {
       const id = req.params.id;
@@ -53,6 +69,8 @@ async function run() {
       const result = await billsCollection.findOne(query);
       res.send(result);
     });
+
+
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
