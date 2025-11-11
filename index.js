@@ -22,12 +22,14 @@ const client = new MongoClient(uri, {
   },
 });
 
+let billsCollection;
+
 async function run() {
   try {
     // Connect to MongoDB
     await client.connect();
     const db = client.db("smart-bills");
-    const billsCollection = db.collection("bills");
+    billsCollection = db.collection("bills");
 
     //post bills
     app.post("/bills", async (req, res) => {
@@ -37,10 +39,47 @@ async function run() {
     });
 
     // get bills
+    // app.get("/bills", async (req, res) => {
+    //   const cursor = billsCollection.find();
+    //   const result = await cursor.toArray();
+    //   res.send(result);
+    // });
+
+    // GET /bills?category=Electricity
     app.get("/bills", async (req, res) => {
-      const cursor = billsCollection.find();
-      const result = await cursor.toArray();
-      res.send(result);
+      const { category } = req.query;
+      let query = {};
+      if (category) {
+        query.category = category;
+      }
+
+      try {
+        const bills = await billsCollection.find(query).toArray();
+        res.json(bills);
+      } catch (err) {
+        res.status(500).json({ message: "Failed to fetch bills", error: err });
+      }
+    });
+
+    // get categories
+    app.get("/bills/categories", async (req, res) => {
+      try {
+        const categories = await billsCollection
+          .aggregate([
+            { $group: { _id: "$category" } },
+            { $project: { _id: 0, category: "$_id" } },
+          ])
+          .toArray();
+
+        const categoryNames = categories.map((c) => c.category);
+
+        res.json(categoryNames);
+      } catch (err) {
+        console.error("Failed to fetch categories:", err);
+        res
+          .status(500)
+          .json({ message: "Failed to fetch categories", error: err });
+      }
     });
 
     // Get latest 3 bills
