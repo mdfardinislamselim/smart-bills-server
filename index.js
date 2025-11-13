@@ -61,7 +61,7 @@ let paidBillsCollection;
 async function run() {
   try {
     // Connect to MongoDB
-    await client.connect();
+    // await client.connect();
     const db = client.db("smart-bills");
     billsCollection = db.collection("bills");
     paidBillsCollection = db.collection("paidBills");
