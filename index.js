@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
+const serviceAccount = require("./serviceKey.json");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -9,6 +11,32 @@ const port = process.env.PORT || 3000;
 // middleware
 app.use(cors());
 app.use(express.json());
+
+// Firebase Admin SDK initialization
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+// verifyToken middleware
+const verifyToken = async (req, res, next) => {
+  const authorization = req.headers.authorization;
+  if (!authorization) {
+    return res
+      .status(401)
+      .send({ message: "Unauthorized access. Token not found!" });
+  }
+
+  const token = authorization.split(" ")[1];
+
+  try {
+    const decodedUser = await admin.auth().verifyIdToken(token);
+    req.decodedUser = decodedUser;
+    next();
+  } catch (error) {
+    console.error("Token verification failed:", error);
+    res.status(401).send({ message: "Unauthorized access. Invalid token." });
+  }
+};
 
 // mongodb uri
 const uri = `mongodb+srv://${process.env.db_user}:${process.env.db_password}@cluster0.j5l5aiu.mongodb.net/?appName=Cluster0`;
@@ -39,13 +67,6 @@ async function run() {
       const result = await billsCollection.insertOne(newBill);
       res.send(result);
     });
-
-    // get bills
-    // app.get("/bills", async (req, res) => {
-    //   const cursor = billsCollection.find();
-    //   const result = await cursor.toArray();
-    //   res.send(result);
-    // });
 
     // GET /bills?category=Electricity
     app.get("/bills", async (req, res) => {
@@ -140,7 +161,38 @@ async function run() {
     res.send(result);
   });
 
+  // get paid bills
+  app.get("/paid-bills/user", verifyToken, async (req, res) => {
+    const { email } = req.query;
+    if (!email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required" });
+    }
 
+    const bills = await paidBillsCollection.find({ email }).toArray();
+    res.send(bills);
+  });
+
+  // Updet Paid bills
+  app.patch("/paid-bills/:id", verifyToken, async (req, res) => {
+    const id = req.params.id;
+    const updatedBill = req.body;
+    const result = await paidBillsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedBill }
+    );
+    res.send(result);
+  });
+
+  // Delete a bill
+  app.delete("/paid-bills/:id", verifyToken, async (req, res) => {
+    const id = req.params.id;
+    const result = await paidBillsCollection.deleteOne({
+      _id: new ObjectId(id),
+    });
+    res.send(result);
+  });
 }
 run().catch(console.dir);
 
