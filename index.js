@@ -194,6 +194,27 @@ async function run() {
       res.send(result);
     });
 
+    // Admin: Delete marketplace bill
+    app.delete("/bills/:id", verifyToken, async (req, res) => {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) return res.status(400).send("Invalid ID");
+        const result = await billsCollection.deleteOne({ _id: new ObjectId(id) });
+        res.send(result);
+    });
+
+    // Admin: Update marketplace bill
+    app.patch("/bills/:id", verifyToken, async (req, res) => {
+        const id = req.params.id;
+        if (!ObjectId.isValid(id)) return res.status(400).send("Invalid ID");
+        const updatedBill = req.body;
+        delete updatedBill._id; // Ensure ID isn't modified
+        const result = await billsCollection.updateOne(
+            { _id: new ObjectId(id) },
+            { $set: updatedBill }
+        );
+        res.send(result);
+    });
+
     // User Profile & Role Fetch
     app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
