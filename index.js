@@ -73,17 +73,64 @@ async function run() {
       res.send(result);
     });
 
-    // GET /bills?category=Electricity
+    // Save user to database (Upsert)
+    app.put("/users", async (req, res) => {
+      const user = req.body;
+      const query = { email: user.email };
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          name: user.name,
+          email: user.email,
+          image: user.image,
+          role: user.role || "user",
+          lastLogin: new Date()
+        },
+      };
+      const result = await db.collection("users").updateOne(query, updateDoc, options);
+      res.send(result);
+    });
+
+    // GET /bills with Search, Sort, and Pagination
     app.get("/bills", async (req, res) => {
-      const { category } = req.query;
+      const { category, search, sort, page = 1, limit = 8 } = req.query;
+      
       let query = {};
-      if (category) {
-        query.category = category;
+      if (category) query.category = category;
+      if (search) {
+        query.$or = [
+          { title: { $regex: search, $options: "i" } },
+          { category: { $regex: search, $options: "i" } },
+          { location: { $regex: search, $options: "i" } }
+        ];
       }
 
+      let sortOptions = {};
+      if (sort === "priceLow") sortOptions.amount = 1;
+      else if (sort === "priceHigh") sortOptions.amount = -1;
+      else if (sort === "dateNew") sortOptions.date = -1;
+      else if (sort === "dateOld") sortOptions.date = 1;
+      else if (sort === "titleAZ") sortOptions.title = 1;
+      else if (sort === "titleZA") sortOptions.title = -1;
+
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      const limitVal = parseInt(limit);
+
       try {
-        const bills = await billsCollection.find(query).toArray();
-        res.json(bills);
+        const total = await billsCollection.countDocuments(query);
+        const bills = await billsCollection
+          .find(query)
+          .sort(sortOptions)
+          .skip(skip)
+          .limit(limitVal)
+          .toArray();
+        
+        res.json({
+          bills,
+          total,
+          totalPages: Math.ceil(total / limitVal),
+          currentPage: parseInt(page)
+        });
       } catch (err) {
         res.status(500).json({ message: "Failed to fetch bills", error: err });
       }
@@ -147,23 +194,102 @@ async function run() {
       res.send(result);
     });
 
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
+    // User Profile & Role Fetch
+    app.get("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await db.collection("users").findOne({ email });
+      res.send(user);
+    });
+
+    // Admin Dashboard Stats
+    app.get("/admin-stats", async (req, res) => {
+      try {
+        const totalUsers = await db.collection("users").countDocuments();
+        const totalBills = await billsCollection.countDocuments();
+        const paidBills = await paidBillsCollection.find().toArray();
+        const totalRevenue = paidBills.reduce((sum, bill) => sum + parseFloat(bill.amount || 0), 0);
+
+        // Chart Data: Revenue by Category
+        const revenueByCategory = await paidBillsCollection.aggregate([
+          { $group: { _id: "$category", total: { $sum: { $toDouble: "$amount" } } } },
+          { $project: { category: "$_id", total: 1, _id: 0 } }
+        ]).toArray();
+
+        // Chart Data: Transaction Count by Date (last 7 days)
+        const recentTransactions = await paidBillsCollection.aggregate([
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$date" } } },
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } },
+          { $limit: 7 }
+        ]).toArray();
+
+        res.json({
+          totalUsers,
+          totalBills,
+          totalRevenue,
+          totalTransactions: paidBills.length,
+          revenueByCategory,
+          recentTransactions
+        });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send("Error fetching stats");
+      }
+    });
+
+    // User Transactions (for history)
+    app.get("/user-stats/:email", async (req, res) => {
+        const email = req.params.email;
+        const bills = await paidBillsCollection.find({ email }).toArray();
+        const totalSpent = bills.reduce((sum, b) => sum + parseFloat(b.amount || 0), 0);
+        
+        res.json({
+            transactionCount: bills.length,
+            totalSpent,
+            recentBills: bills.slice(-5).reverse()
+        });
+    });
+
+    // Admin: Get All Users
+    app.get("/admin/all-users", verifyToken, async (req, res) => {
+        const users = await db.collection("users").find().toArray();
+        res.send(users);
+    });
+
+    // Admin: Update User Role
+    app.patch("/users/role/:email", verifyToken, async (req, res) => {
+        const email = req.params.email;
+        const { role } = req.body;
+        const result = await db.collection("users").updateOne(
+            { email },
+            { $set: { role } }
+        );
+        res.send(result);
+    });
+
+    // Console message simplified for deployment
+    // console.log("Database Operational");
   } catch (error) {
     console.error("❌ MongoDB connection failed:", error);
   }
 
-  //Add a new paid bill
+  // Transaction endpoints
   app.post("/paid-bills", async (req, res) => {
     const paidBill = req.body;
-
     if (!paidBill || typeof paidBill !== "object") {
       return res.status(400).send({ message: "Invalid request body" });
     }
-
     const result = await paidBillsCollection.insertOne(paidBill);
     res.send(result);
+  });
+
+  app.get("/admin/all-transactions", verifyToken, async (req, res) => {
+     const bills = await paidBillsCollection.find().toArray();
+     res.send(bills);
   });
 
   // get paid bills
